@@ -13,6 +13,7 @@ ControlApp se basa en una comunicación fluida y en tiempo real. Aquí un vistaz
 * **Firebase Realtime Database:** Es el centro de la verdad, sincronizando el estado entre el ESP32, la App Móvil y el Dashboard Web en tiempo real.
 * **Dashboard Web:** Escucha constantemente los cambios en Firebase para mostrar el estado actualizado de los dispositivos.
 
+![Diagrama de Arquitectura de ControlApp](./docs/Diagrama de Flujo Desarrollo de Procesos Moderno Beige y Rosa .png)
 
 ## 📦 Estructura del Repositorio
 
