@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Estilos personalizados para el slider (navegadores basados en Webkit/Firefox) */
+input[type='range']::-webkit-slider-runnable-track {
+    background: var(--webkit-slider-runnable-track-background);
+}
+input[type='range']::-moz-range-track {
+    background: var(--moz-range-track-background);
+}
+input[type='range']::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: var(--thumb-background);
+    cursor: pointer;
+    margin-top: -9px; /* Centra el pulgar en la pista */
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+}
+input[type='range']::-moz-range-thumb {
+    height: 20px;
+    width: 20px;
+    border-radius: 50%;
+    background: var(--thumb-background);
+    cursor: pointer;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
+}
