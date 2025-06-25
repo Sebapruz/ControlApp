@@ -24,7 +24,7 @@ import {
   Zap,
 } from 'lucide-react';
 
-// --- Firebase Configuration ---
+// --- config de firebase ---
 const firebaseConfig = {
   apiKey: "AIzaSyB8bvI6OUFyEsUA5nzAFa2P7rE_pH5TgCU",
   authDomain: "controlapp-1cae3.firebaseapp.com",
@@ -35,12 +35,12 @@ const firebaseConfig = {
   measurementId: "G-DRZS9P591K"
 };
 
-// Initialize Firebase
+// inicializacion de firebase
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const database = getDatabase(app);
 
-// --- Auth Context ---
+
 const AuthContext = createContext(null);
 
 const AuthProvider = ({ children }) => {
@@ -48,7 +48,7 @@ const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Listen for authentication state changes
+    // inicializar la escucha de cambios
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       setLoading(false);
@@ -63,7 +63,7 @@ const AuthProvider = ({ children }) => {
   );
 };
 
-// --- Notification Component ---
+
 const Notification = ({ message, type, onClose }) => {
   if (!message) return null;
   const bgColor = type === 'success' ? 'bg-green-500' : 'bg-red-500';
@@ -80,7 +80,7 @@ const Notification = ({ message, type, onClose }) => {
   );
 };
 
-// --- Login/Register Component ---
+//  Login
 const LoginPage = ({ onLoginSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -161,7 +161,7 @@ const LoginPage = ({ onLoginSuccess }) => {
   );
 };
 
-// --- Dashboard Component (List of Rooms) ---
+// Creacion de la Lista de Salas
 const DashboardPage = ({ onLogout, onSelectRoom }) => {
   const { user } = useContext(AuthContext);
   const [room201Status, setRoom201Status] = useState(null);
@@ -244,28 +244,28 @@ const DashboardPage = ({ onLogout, onSelectRoom }) => {
   );
 };
 
-// --- Bar Chart Component for Usage Hours ---
+// Conteo de Horas
 const BarChart = ({ data, title, color }) => {
   if (!data || data.length === 0) return <p className="text-gray-600">No hay datos de uso para mostrar.</p>;
 
-  const width = 600; // Increased width for better display
+  const width = 600; 
   const height = 300;
-  const margin = { top: 20, right: 30, bottom: 60, left: 50 }; // Increased bottom margin for labels
+  const margin = { top: 20, right: 30, bottom: 60, left: 50 }; 
 
-  // Calculate max value for y-axis
-  const maxHours = Math.max(...data.map(d => d.hours)) * 1.2; // Add some padding to the max value
+  // Calculadora de Horas
+  const maxHours = Math.max(...data.map(d => d.hours)) * 1.2; 
   const yAxisScale = maxHours > 0 ? height - margin.top - margin.bottom : 1;
 
   return (
     <div className="p-4 bg-white rounded-lg shadow-inner border border-gray-100">
       <h4 className="text-lg font-semibold mb-4 text-gray-800 text-center">{title}</h4>
       <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto" preserveAspectRatio="xMidYMid meet">
-        {/* Y-axis (left side) */}
+       
         <line x1={margin.left} y1={margin.top} x2={margin.left} y2={height - margin.bottom} stroke="gray" strokeWidth="1" />
-        {/* X-axis (bottom) */}
+        
         <line x1={margin.left} y1={height - margin.bottom} x2={width - margin.right} y2={height - margin.bottom} stroke="gray" strokeWidth="1" />
 
-        {/* Y-axis labels */}
+        
         {Array.from({ length: 5 }).map((_, i) => {
           const value = (maxHours / 4) * i;
           const y = height - margin.bottom - (value / maxHours) * yAxisScale;
@@ -278,7 +278,7 @@ const BarChart = ({ data, title, color }) => {
 
         {data.map((d, i) => {
           const barWidth = (width - margin.left - margin.right) / data.length;
-          const x = margin.left + i * barWidth + barWidth * 0.1; // Add padding between bars
+          const x = margin.left + i * barWidth + barWidth * 0.1; 
           const barHeight = (d.hours / maxHours) * yAxisScale;
           const y = height - margin.bottom - barHeight;
 
@@ -287,14 +287,14 @@ const BarChart = ({ data, title, color }) => {
               <rect
                 x={x}
                 y={y}
-                width={barWidth * 0.8} // Adjust bar width for spacing
+                width={barWidth * 0.8} 
                 height={barHeight}
                 fill={color}
                 className="transition-all duration-300 ease-out"
-                rx="4" ry="4" // Rounded corners for bars
+                rx="4" ry="4" 
               />
               <text
-                x={x + barWidth * 0.4} // Center text above the bar
+                x={x + barWidth * 0.4} 
                 y={y - 5}
                 textAnchor="middle"
                 fontSize="12"
@@ -303,12 +303,12 @@ const BarChart = ({ data, title, color }) => {
                 {d.hours.toFixed(1)}
               </text>
               <text
-                x={x + barWidth * 0.4} // Center date label below the bar
-                y={height - margin.bottom + 20} // Position below X-axis
+                x={x + barWidth * 0.4} 
+                y={height - margin.bottom + 20} 
                 textAnchor="middle"
                 fontSize="12"
                 fill="gray"
-                transform={`rotate(45 ${x + barWidth * 0.4}, ${height - margin.bottom + 20})`} // Rotate labels
+                transform={`rotate(45 ${x + barWidth * 0.4}, ${height - margin.bottom + 20})`} 
               >
                 {d.date}
               </text>
@@ -320,7 +320,7 @@ const BarChart = ({ data, title, color }) => {
   );
 };
 
-// --- Room Dashboard Component ---
+// --- Componentes de la DashBoard ---
 const RoomDashboardPage = ({ roomId, onBack }) => {
   const [roomState, setRoomState] = useState({
     projector_status: 'OFF',
@@ -332,12 +332,12 @@ const RoomDashboardPage = ({ roomId, onBack }) => {
   const [acUsageLogs, setAcUsageLogs] = useState([]);
   const [notification, setNotification] = useState({ message: '', type: '' });
 
-  // Refs to store on-time for ongoing sessions
+  
   const projectorOnTimeRef = useRef(null);
   const acOnTimeRef = useRef(null);
 
   useEffect(() => {
-    // Listen for current status
+  
     const roomStatusRef = ref(database, `rooms/${roomId}/current_status`);
     const unsubscribeStatus = onValue(roomStatusRef, (snapshot) => {
       const data = snapshot.val();
@@ -356,7 +356,7 @@ const RoomDashboardPage = ({ roomId, onBack }) => {
       setNotification({ message: 'Error al cargar el estado de la sala.', type: 'error' });
     });
 
-    // Listen for projector usage logs
+    
     const projectorLogsRef = ref(database, `rooms/${roomId}/projector_logs`);
     const unsubscribeProjectorLogs = onValue(projectorLogsRef, (snapshot) => {
       const logs = [];
@@ -383,27 +383,27 @@ const RoomDashboardPage = ({ roomId, onBack }) => {
     };
   }, [roomId]);
 
-  // Effect to update on-time refs based on current status
+  // Actualizar los estados y tiempos
   useEffect(() => {
     // Projector
     if (roomState.projector_status === 'ON' && !projectorOnTimeRef.current) {
-      // If projector just turned ON, or was ON when loaded, set current time
+      
       projectorOnTimeRef.current = Date.now();
     } else if (roomState.projector_status === 'OFF') {
-      projectorOnTimeRef.current = null; // Reset when OFF
+      projectorOnTimeRef.current = null; 
     }
 
     // AC
     if (roomState.ac_status === 'ON' && !acOnTimeRef.current) {
-      // If AC just turned ON, or was ON when loaded, set current time
+      //
       acOnTimeRef.current = Date.now();
     } else if (roomState.ac_status === 'OFF') {
-      acOnTimeRef.current = null; // Reset when OFF
+      acOnTimeRef.current = null; 
     }
   }, [roomState.projector_status, roomState.ac_status]);
 
 
-  // Helper function to calculate total usage hours from logs
+ 
   const calculateTotalUsageHours = (logs, currentStatus, currentOnTimeRef) => {
     let totalHours = 0;
     let lastOnTime = null;
@@ -412,12 +412,12 @@ const RoomDashboardPage = ({ roomId, onBack }) => {
       if (log.status === 'ON') {
         lastOnTime = log.timestamp;
       } else if (log.status === 'OFF' && lastOnTime) {
-        totalHours += (log.timestamp - lastOnTime) / (1000 * 60 * 60); // Convert ms to hours
+        totalHours += (log.timestamp - lastOnTime) / (1000 * 60 * 60); 
         lastOnTime = null;
       }
     });
 
-    // If device is currently ON, add duration from last ON event to now
+    
     if (currentStatus === 'ON' && currentOnTimeRef.current) {
       const lastRelevantOnTime = logs.length > 0 && logs[logs.length - 1].status === 'ON'
                                ? logs[logs.length - 1].timestamp
@@ -427,7 +427,7 @@ const RoomDashboardPage = ({ roomId, onBack }) => {
     return totalHours;
   };
 
-  // Helper function to calculate daily usage for charts
+  
   const calculateDailyUsageHours = (logs, currentStatus, currentOnTimeRef) => {
     const dailyData = {};
     const today = new Date();
