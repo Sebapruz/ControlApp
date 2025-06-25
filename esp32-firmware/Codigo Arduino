@@ -1,0 +1,498 @@
+// --- Directivas para Optimización de la Librería Firebase ---
+#define FIREBASE_USE_FIREBASE_RTDB
+
+// --- Librerías Necesarias ---
+#include <WiFi.h>
+#include <Firebase_ESP_Client.h>
+#include <ArduinoJson.h>
+#include <BluetoothSerial.h>
+#include <IRremoteESP8266.h>
+#include <IRsend.h>
+#include <EEPROM.h>
+#include <esp_system.h>
+#include <esp_mac.h>
+#include <HTTPClient.h>
+
+// Incluimos cabeceras específicas para Bluetooth de bajo nivel
+#include <esp_bt.h>
+#include <esp_gap_bt_api.h>
+#include <esp_bt_main.h>
+
+// --- Definiciones de Pines y Configuraciones Generales ---
+#define IR_SEND_PIN 4         // Pin del emisor IR
+#define LED_PIN 2             // Pin del LED de estado
+#define EEPROM_SIZE 512       // Tamaño de EEPROM
+
+// --- Configuración de Bluetooth ---
+#define DEVICE_NAME "ESP32_IR_Control"
+const char* BLUETOOTH_PIN = "1234";
+
+// --- Configuración WiFi ---
+const char* WIFI_SSID = "dlink-1BAC";           // Tu red WiFi
+const char* WIFI_PASSWORD = "mwfox15791";         // Tu contraseña WiFi
+
+// --- Configuración de Firebase ---
+#define FIREBASE_HOST   "controlapp-1cae3-default-rtdb.firebaseio.com"
+#define FIREBASE_API_KEY "AIzaSyCdalarh7vS_TCSATZ0Lk4Ec818E_TZImw"
+
+// --- Identificador de la Sala ---
+#define ROOM_ID "201"
+
+// --- Objetos de Configuración Firebase ---
+FirebaseConfig firebaseConfig;
+FirebaseAuth firebaseAuth;
+FirebaseData firebaseData;  // Único objeto para stream (nodo único)
+
+// --- Objetos de Comunicación ---
+BluetoothSerial SerialBT;   // Bluetooth para comunicación con la app (APK)
+IRsend irsend(IR_SEND_PIN);  // Objeto para emitir señales IR
+
+// --- Códigos IR de Ejemplo ---
+// Para AC (usando COOLIX)
+#define AC_ON_CODE  0xB2BF40
+#define AC_OFF_CODE 0xB2BF40
+// Ejemplo de códigos para temperaturas (índices 0 de 16°C a 14 de 30°C)
+const uint64_t AC_TEMP_CODES[] = {
+  0x20C040B, 0x20C0807, 0x20C0C03, 0x20C100F, 0x20C140B, 0x20C1807, 0x20C1C03,
+  0x20C200F, 0x20C240B, 0x20C2807, 0x20C2C03, 0x20C300F, 0x20C340B, 0x20C3807,
+  0x20C3C03
+};
+// Para Proyector (usando NEC)
+#define PROJ_CODE 0xC1AA09F6
+#define PROJ_BITS 32
+
+// --- Estructura para el estado actual ---
+struct CurrentState {
+  bool bluetoothConnected;
+  String controlSource;
+  String lastCommand;
+  unsigned long lastUpdate;
+  bool projectorPower;
+  bool acPower;
+  int acTemp;
+  unsigned long lastFirebaseUpdate;
+};
+
+CurrentState currentState;
+
+// --- Prototipos de Funciones ---
+void connectToWiFi();
+void printMACAddress();
+void setupBluetoothMejorado();
+void checkSystemHealth();
+void checkInternetConnectivity();
+void roomStatusCallback(FirebaseStream data);
+void streamTimeoutCallback(bool timeout);
+void sendIRCommandMejorado(String device, String command, int value, String source);
+String createResponseJSON(bool success, String message);
+
+// ------------------------------------------------------------
+// Función para conectar a WiFi
+// ------------------------------------------------------------
+void connectToWiFi() {
+  Serial.print("Conectando a WiFi: ");
+  Serial.println(WIFI_SSID);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int retries = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    retries++;
+    if (retries > 40) {
+      Serial.println("\nNo se pudo conectar a WiFi. Reiniciando...");
+      delay(1000);
+      ESP.restart();
+    }
+  }
+  Serial.println("\nWiFi Conectado!");
+  Serial.print("IP: ");
+  Serial.println(WiFi.localIP());
+}
+
+// ------------------------------------------------------------
+// Función para imprimir las direcciones MAC
+// ------------------------------------------------------------
+void printMACAddress() {
+  uint8_t mac[6];
+  char macStr[18];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  Serial.print("MAC WiFi: ");
+  Serial.println(macStr);
+  
+  esp_read_mac(mac, ESP_MAC_BT);
+  sprintf(macStr, "%02X:%02X:%02X:%02X:%02X:%02X",
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  Serial.print("MAC Bluetooth: ");
+  Serial.println(macStr);
+  Serial.println("Copia la MAC Bluetooth para la APK si es necesario.");
+}
+
+// ------------------------------------------------------------
+// Función para configurar y comenzar Bluetooth
+// ------------------------------------------------------------
+void setupBluetoothMejorado() {
+  SerialBT.register_callback([](esp_spp_cb_event_t event, esp_spp_cb_param_t *param){
+    if(event == ESP_SPP_SRV_OPEN_EVT) {
+      Serial.println("Bluetooth Conectado");
+      currentState.bluetoothConnected = true;
+    } else if(event == ESP_SPP_CLOSE_EVT) {
+      Serial.println("Bluetooth Desconectado");
+      currentState.bluetoothConnected = false;
+    }
+  });
+  esp_bt_gap_set_scan_mode(ESP_BT_NON_CONNECTABLE, ESP_BT_NON_DISCOVERABLE);
+  
+  if (!SerialBT.begin(DEVICE_NAME, false)) {
+    Serial.println("Error: No se pudo iniciar Bluetooth");
+    delay(1000);
+    ESP.restart();
+  } else {
+    Serial.println("Bluetooth iniciado:");
+    Serial.print("  Nombre: ");
+    Serial.println(DEVICE_NAME);
+    Serial.print("  PIN: ");
+    Serial.println(BLUETOOTH_PIN);
+    SerialBT.setPin(BLUETOOTH_PIN);
+    SerialBT.enableSSP();
+  }
+}
+
+// ------------------------------------------------------------
+// Función para crear JSON de respuesta (para Bluetooth)
+// ------------------------------------------------------------
+String createResponseJSON(bool success, String message) {
+  DynamicJsonDocument doc(256);
+  doc["success"] = success;
+  doc["message"] = message;
+  String output;
+  serializeJson(doc, output);
+  return output;
+}
+
+// ------------------------------------------------------------
+// Función para chequear la salud del sistema (Watchdog básico)
+// ------------------------------------------------------------
+void checkSystemHealth() {
+  static unsigned long lastHealthCheck = 0;
+  const unsigned long healthInterval = 60000; // 1 minuto
+  if (millis() - lastHealthCheck > healthInterval) {
+    lastHealthCheck = millis();
+    if (millis() - currentState.lastUpdate > 300000) {
+      Serial.println("Sin actividad prolongada. Reiniciando...");
+      delay(1000);
+      ESP.restart();
+    }
+    Serial.print("Heap libre: ");
+    Serial.print(ESP.getFreeHeap());
+    Serial.println(" bytes");
+    if (ESP.getFreeHeap() < 15000) {
+      Serial.println("Memoria baja, reiniciando...");
+      delay(1000);
+      ESP.restart();
+    }
+  }
+}
+
+// ------------------------------------------------------------
+// Función para verificar conectividad a Internet
+// ------------------------------------------------------------
+void checkInternetConnectivity() {
+  Serial.println("Verificando conectividad a Internet...");
+  HTTPClient http;
+  http.begin("http://www.google.com");
+  int httpCode = http.GET();
+  if (httpCode > 0) {
+    Serial.print("Conectividad OK, HTTP Code: ");
+    Serial.println(httpCode);
+  } else {
+    Serial.print("Error en conectividad: ");
+    Serial.println(http.errorToString(httpCode).c_str());
+  }
+  http.end();
+}
+
+// ------------------------------------------------------------
+// Función para enviar comandos IR de manera mejorada
+// ------------------------------------------------------------
+void sendIRCommandMejorado(String device, String command, int value, String source) {
+  Serial.print("Enviando comando IR: ");
+  Serial.print(device);
+  Serial.print(" - ");
+  Serial.print(command);
+  Serial.print(" (valor: ");
+  Serial.print(value);
+  Serial.print(", desde: ");
+  Serial.print(source);
+  Serial.println(")");
+  
+  currentState.controlSource = source;
+  currentState.lastCommand = device + "_" + command;
+  
+  bool comandoEnviado = false;
+  bool stateChanged = false;
+  
+  Serial.print("Estado inicial - Proyector: ");
+  Serial.print(currentState.projectorPower ? "ON" : "OFF");
+  Serial.print(", AC: ");
+  Serial.print(currentState.acPower ? "ON" : "OFF");
+  Serial.print(", Temp: ");
+  Serial.println(currentState.acTemp);
+  
+  if (device == "AC") {
+    if (command == "ON") {
+      if (!currentState.acPower) {
+        irsend.sendCOOLIX(AC_ON_CODE, 24);
+        currentState.acPower = true;
+        stateChanged = true;
+        Serial.println("AC ON: Estado cambiado.");
+      } else {
+        Serial.println("AC ON: Ya estaba encendido.");
+      }
+      comandoEnviado = true;
+    } else if (command == "OFF") {
+      if (currentState.acPower) {
+        irsend.sendCOOLIX(AC_OFF_CODE, 24);
+        currentState.acPower = false;
+        stateChanged = true;
+        Serial.println("AC OFF: Estado cambiado.");
+      } else {
+        Serial.println("AC OFF: Ya estaba apagado.");
+      }
+      comandoEnviado = true;
+    } else if (command == "TEMP" && value >= 16 && value <= 30) {
+      int tempIndex = value - 16;
+      if (tempIndex >= 0 && tempIndex < 15) {
+        if (currentState.acTemp != value) {
+          irsend.sendCOOLIX(AC_TEMP_CODES[tempIndex], 24);
+          currentState.acTemp = value;
+          stateChanged = true;
+          Serial.print("AC TEMP: Temperatura cambiada a ");
+          Serial.println(value);
+        } else {
+          Serial.println("AC TEMP: Temperatura ya era la misma.");
+        }
+        comandoEnviado = true;
+      }
+    }
+  } else if (device == "PROJECTOR") {
+    if (command == "ON") {
+      if (!currentState.projectorPower) {
+        stateChanged = true;
+        Serial.println("PROJECTOR ON: Estado cambiado.");
+      } else {
+        Serial.println("PROJECTOR ON: Ya estaba encendido.");
+      }
+      currentState.projectorPower = true;
+      comandoEnviado = true;
+    } else if (command == "OFF") {
+      if (currentState.projectorPower) {
+        stateChanged = true;
+        Serial.println("PROJECTOR OFF: Estado cambiado.");
+      } else {
+        Serial.println("PROJECTOR OFF: Ya estaba apagado.");
+      }
+      currentState.projectorPower = false;
+      comandoEnviado = true;
+    }
+    if (comandoEnviado) {
+      irsend.sendNEC(PROJ_CODE, PROJ_BITS);
+      Serial.println("Comando IR enviado al proyector.");
+    }
+  }
+  
+  // Actualiza Firebase para sincronizar el estado
+  Serial.println("Actualizando estado en Firebase para sincronizar.");
+  // Aquí se actualizaría "rooms/<ROOM_ID>/current_status" desde la web,
+  // pero la ESP32 actúa solo como receptor y emisor de IR.
+  
+  currentState.lastUpdate = millis();
+  Serial.print("Estado final - Proyector: ");
+  Serial.print(currentState.projectorPower ? "ON" : "OFF");
+  Serial.print(", AC: ");
+  Serial.print(currentState.acPower ? "ON" : "OFF");
+  Serial.print(", Temp: ");
+  Serial.println(currentState.acTemp);
+  
+  if (currentState.bluetoothConnected) {
+    String response = "Comando " + device + "_" + command + " ejecutado";
+    SerialBT.println(createResponseJSON(true, response));
+  }
+}
+
+// ------------------------------------------------------------
+// Callback para el stream del nodo "rooms/ROOM_ID/current_status"
+// ------------------------------------------------------------
+void roomStatusCallback(FirebaseStream data) {
+  Serial.println("\n--- roomStatusCallback ACTIVADO ---");
+  Serial.print("JSON recibido: ");
+  Serial.println(data.jsonString());
+  
+  if (data.jsonString().length() == 0) {
+    Serial.println("Payload vacío, ignorando.");
+    return;
+  }
+  
+  DynamicJsonDocument doc(512);
+  DeserializationError err = deserializeJson(doc, data.jsonString());
+  if (err) {
+    Serial.print("Error al parsear JSON: ");
+    Serial.println(err.c_str());
+    return;
+  }
+  
+  // Procesar el estado para PROYECTOR
+  if (doc.containsKey("projector_status")) {
+    String projStatus = doc["projector_status"];
+    Serial.print("Recibido estado del Proyector: ");
+    Serial.println(projStatus);
+    if (projStatus == "ON") {
+      irsend.sendNEC(PROJ_CODE, PROJ_BITS);
+      Serial.println("Comando IR: PROYECTOR - ON");
+      currentState.projectorPower = true;
+    } else if (projStatus == "OFF") {
+      irsend.sendNEC(PROJ_CODE, PROJ_BITS);
+      Serial.println("Comando IR: PROYECTOR - OFF");
+      currentState.projectorPower = false;
+    }
+  }
+  
+  // Procesar el estado para AC
+  if (doc.containsKey("ac_status")) {
+    String acStatus = doc["ac_status"];
+    Serial.print("Recibido estado del AC: ");
+    Serial.println(acStatus);
+    if (acStatus == "ON") {
+      irsend.sendCOOLIX(AC_ON_CODE, 24);
+      Serial.println("Comando IR: AC - ON");
+      currentState.acPower = true;
+    } else if (acStatus == "OFF") {
+      irsend.sendCOOLIX(AC_OFF_CODE, 24);
+      Serial.println("Comando IR: AC - OFF");
+      currentState.acPower = false;
+    } else if (acStatus == "TEMP") {
+      int acTemp = doc["ac_temperature"];
+      int tempIndex = acTemp - 16;
+      if (tempIndex >= 0 && tempIndex < 15) {
+        irsend.sendCOOLIX(AC_TEMP_CODES[tempIndex], 24);
+        Serial.print("Comando IR: AC - TEMP ajustada a ");
+        Serial.println(acTemp);
+        currentState.acTemp = acTemp;
+      }
+    }
+  }
+  Serial.println("Estado procesado y comandos ejecutados.");
+}
+
+// ------------------------------------------------------------
+// Callback para timeout del stream
+// ------------------------------------------------------------
+void streamTimeoutCallback(bool timeout) {
+  Serial.print("Stream timeout: ");
+  if (timeout) {
+    Serial.println("Timeout detectado, reiniciando stream...");
+    String roomPath = "/rooms/" + String(ROOM_ID) + "/current_status";
+    if (!Firebase.RTDB.beginStream(&firebaseData, roomPath.c_str())) {
+      Serial.print("ERROR reiniciando stream: ");
+      Serial.println(firebaseData.errorReason());
+    } else {
+      Serial.println("Stream reiniciado.");
+      Firebase.RTDB.setStreamCallback(&firebaseData, roomStatusCallback, streamTimeoutCallback);
+    }
+  } else {
+    Serial.println("Stream recuperado.");
+  }
+}
+
+// ------------------------------------------------------------
+// Setup
+// ------------------------------------------------------------
+void setup() {
+  Serial.begin(115200);
+  Serial.println("=== Iniciando ESP32 ===");
+  
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+  
+  EEPROM.begin(EEPROM_SIZE);
+  
+  // Inicia Bluetooth
+  setupBluetoothMejorado();
+  
+  // Inicializa IR
+  irsend.begin();
+  Serial.println(String("IR inicializado en pin: ") + IR_SEND_PIN);
+  
+  printMACAddress();
+  
+  // Inicializa estado
+  currentState.projectorPower = false;
+  currentState.acPower = false;
+  currentState.acTemp = 24;
+  currentState.lastUpdate = millis();
+  currentState.controlSource = "SYSTEM_INIT";
+  currentState.bluetoothConnected = false;
+  currentState.lastFirebaseUpdate = 0;
+  
+  connectToWiFi();
+  Serial.println("Verificando conectividad a Internet...");
+  checkInternetConnectivity();
+  
+  // Configura Firebase
+  firebaseConfig.api_key = FIREBASE_API_KEY;
+  String dbUrl = "https://" + String(FIREBASE_HOST);
+  firebaseConfig.database_url = dbUrl;
+  firebaseAuth.user.email = "admin@umayor.cl";   // Actualiza según tus credenciales
+  firebaseAuth.user.password = "admin1";          // Actualiza según tus credenciales
+  
+  Firebase.begin(&firebaseConfig, &firebaseAuth);
+  delay(2000);
+  
+  // Inicia stream en "rooms/<ROOM_ID>/current_status"
+  String roomPath = "/rooms/" + String(ROOM_ID) + "/current_status";
+  if (!Firebase.RTDB.beginStream(&firebaseData, roomPath.c_str())) {
+    Serial.print("ERROR iniciando stream: ");
+    Serial.println(firebaseData.errorReason());
+  } else {
+    Serial.println("Stream iniciado en: " + roomPath);
+    Firebase.RTDB.setStreamCallback(&firebaseData, roomStatusCallback, streamTimeoutCallback);
+  }
+  
+  digitalWrite(LED_PIN, HIGH);
+  Serial.println("ESP32 listo para recibir comandos en 'rooms/" + String(ROOM_ID) + "/current_status'");
+}
+
+// ------------------------------------------------------------
+// Loop
+// ------------------------------------------------------------
+void loop() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("WiFi desconectado. Reconectando...");
+    connectToWiFi();
+  }
+  
+  checkSystemHealth();
+  
+  if (SerialBT.available()) {
+    String command = SerialBT.readStringUntil('\n');
+    command.trim();
+    if (command.length() > 0) {
+      Serial.print("Comando Bluetooth recibido: ");
+      Serial.println(command);
+      // Aquí se puede agregar lógica para interpretar comandos Bluetooth si es necesario.
+    }
+  }
+  
+  if (Serial.available()) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    if (command.length() > 0) {
+      Serial.print("Comando Serial recibido: ");
+      Serial.println(command);
+    }
+  }
+  
+  delay(100);
+  yield();
+}
