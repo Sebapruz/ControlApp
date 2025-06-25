@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "278542934818",
+    "project_id": "controlapp-1cae3",
+    "storage_bucket": "controlapp-1cae3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:278542934818:android:f6f7e9c3c6d7a53b3f7b7b",
+        "android_client_info": {
+          "package_name": "com.example.controlsalasapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdalarh7vS_TCSATZ0Lk4Ec818E_TZImw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
